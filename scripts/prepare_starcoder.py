@@ -1,3 +1,6 @@
+import pandas as pd
+from lit_gpt import Tokenizer
+import lit_gpt.packed_dataset as packed_dataset
 import json
 import glob
 import os
@@ -12,18 +15,13 @@ from multiprocessing import Process, cpu_count
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-import lit_gpt.packed_dataset as packed_dataset
-from lit_gpt import Tokenizer
-
-import pandas as pd
-
 
 def prepare_full(
     source_path: Path,
     tokenizer_path: Path,
     destination_path: Path,
     chunk_size: int,
-    split: str="train",
+    split: str = "train",
     filenames_subset: List[str] = None,
     process_id: int = 0
 ) -> None:
@@ -34,8 +32,8 @@ def prepare_full(
     tokenizer = Tokenizer(tokenizer_path)
 
     # Use the provided filenames_subset or default to all filenames
-    filenames = filenames_subset 
-    
+    filenames = filenames_subset
+
     if not filenames:
         raise RuntimeError(
             f"No files matching  found at {source_path}. \n"
@@ -44,7 +42,8 @@ def prepare_full(
 
     builder = packed_dataset.PackedDatasetBuilder(
         outdir=destination_path,
-        prefix=f"{split}_starcoder_{process_id}",  # Use process_id to differentiate builders
+        # Use process_id to differentiate builders
+        prefix=f"{split}_starcoder_{process_id}",
         chunk_size=chunk_size,
         sep_token=tokenizer.bos_id,
         dtype="auto",
@@ -54,7 +53,8 @@ def prepare_full(
     for filepath in filenames:
         print(f"Processing {filepath}")
         try:
-            contents = pd.read_parquet(filepath, engine='pyarrow')['content']
+            with open(filepath, 'r', encoding='utf-8') as file:
+                contents = file.readlines()  # Read all lines from the .txt file
         except:
             print(f"Error reading {filepath}!!")
             continue
@@ -71,16 +71,20 @@ def prepare(
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     destination_path: Path = Path("data/red_pajama_sample"),
     chunk_size: int = 2049 * 1024,
-    split: str="train",
+    split: str = "train",
     percentage: float = 1.0,
     filenames_subset: List[str] = None,
 ) -> None:
     import time
-    assert split == "train" #  starcoder only has train data
-    filenames = glob.glob(os.path.join(source_path, "*/*.parquet"), recursive=True)
+    assert split == "train"  # starcoder only has train data
+    filenames = glob.glob(os.path.join(
+        source_path, "*.txt"), recursive=False)
+
+    print(f"Found {len(filenames)} files: {filenames[:5]}")
     # only retrain subsets that follow the prefix in filenames_subset
     if filenames_subset:
-        filenames = [f for f in filenames if any([prefix in f for prefix in filenames_subset])]
+        filenames = [f for f in filenames if any(
+            [prefix in f for prefix in filenames_subset])]
     filenames = filenames[:int(len(filenames) * percentage)]
     num_processes = 64
     chunked_filenames = np.array_split(filenames, num_processes)
@@ -89,7 +93,8 @@ def prepare(
     start_time = time.time()
 
     for i, subset in enumerate(chunked_filenames):
-        p = Process(target=prepare_full, args=(source_path, tokenizer_path, destination_path, chunk_size, split, list(subset), i))
+        p = Process(target=prepare_full, args=(source_path, tokenizer_path,
+                    destination_path, chunk_size, split, list(subset), i))
         processes.append(p)
         p.start()
 
